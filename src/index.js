@@ -164,7 +164,7 @@ const origTitle = document.title;
 let currentStation;
 let exitFeature;
 const stationView = {
-  mount: (feature, exitFeature) => {
+  mount: (feature, isSameStation) => {
     // set title
     const { properties, geometry } = feature;
     const exitProperties = exitFeature?.properties;
@@ -225,6 +225,9 @@ const stationView = {
     if (station_codes === currentStation) return;
 
     currentStation = station_codes;
+
+    if (isSameStation) return;
+
     $station.innerHTML = `
       <header>
         <span class="pill">
@@ -618,15 +621,11 @@ const formatTime = (datetime, showAMPM = false) => {
     currentStation = stationsData.find(
       (d) => d.properties.station_codes === exitFeature.properties.station_codes,
     );
-    const previousStationName = decodeURIComponent(location.hash.split('/')[1] || '');
-
-    if(!previousStationName) { // Nothing -> Exit
-      location.hash = `stations/${currentStation.properties.name}`;
-    }
-    else if (previousStationName !== currentStation.properties.name) { // Station || Exit -> Exit at a different station.
-      location.hash = `stations/${currentStation.properties.name}`;
-    } else { // Station || Exit -> Exit at same station.
-      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    const previousHash = location.hash
+    const previousStationName = decodeURIComponent(previousHash.split('/')[1] || '');
+    location.hash = `stations/${currentStation.properties.name}`;
+    if (previousStationName === currentStation.properties.name) {
+      window.dispatchEvent(new HashChangeEvent("hashchange", {oldURL: previousHash}));
     }
   });
 
@@ -815,9 +814,10 @@ const formatTime = (datetime, showAMPM = false) => {
   });
 
   // Handle onhashchange
-  const onHashChange = () => {
+  const onHashChange = (e) => {
     // hash looks like this "stations/[NAME]", get the NAME, find it in the geojson and show it
     const name = decodeURIComponent(location.hash.split('/')[1] || '');
+    const previousName = decodeURIComponent(e.oldURL.split('/')[1] || '');
     const stationData =
       name &&
       data.features.find((f) => {
@@ -830,7 +830,8 @@ const formatTime = (datetime, showAMPM = false) => {
         return codes.some((c) => c.toLowerCase() === name.toLowerCase());
       });
     if (stationData) {
-      stationView.mount(stationData, exitFeature);
+      const isSameStation = previousName === name;
+      stationView.mount(stationData, isSameStation);
     } else {
       stationView.unmount();
     }
