@@ -162,10 +162,12 @@ function formatArriveTime(str) {
 
 const origTitle = document.title;
 let currentStation;
+let exitFeature;
 const stationView = {
-  mount: (feature) => {
+  mount: (feature, exitFeature) => {
     // set title
     const { properties, geometry } = feature;
+    const exitProperties = exitFeature?.properties;
     const {
       name,
       'name_zh-Hans': name_zh_Hans,
@@ -179,25 +181,44 @@ const stationView = {
 
     $station.classList.remove('min');
 
-    const zoom = map.getZoom();
-    const isScreenLarge = window.innerWidth >= 640;
-    const padding = isScreenLarge
-      ? { left: 320 }
-      : { bottom: window.innerHeight / 2 };
-    if (zoom <= 13) {
-      map.jumpTo({
-        center: geometry.coordinates,
-        zoom: 16.5,
-        pitch: 70,
-        padding,
-      });
+    if (!exitProperties) {
+      const zoom = map.getZoom();
+      const isScreenLarge = window.innerWidth >= 640;
+      const padding = isScreenLarge
+        ? { left: 320 }
+        : { bottom: window.innerHeight / 2 };
+      if (zoom <= 13) {
+        map.jumpTo({
+          center: geometry.coordinates,
+          zoom: 16.5,
+          pitch: 70,
+          padding,
+        });
+      } else {
+        map.easeTo({
+          center: geometry.coordinates,
+          zoom: 16.5,
+          pitch: 70,
+          padding,
+          duration: 500,
+        });
+      }
     } else {
-      map.easeTo({
-        center: geometry.coordinates,
-        zoom: 16.5,
+      const stationCoords = geometry.coordinates;
+      const coords = exitsData[exitProperties.station_codes]
+        .find((d)=> d.properties.name == exitProperties.name)
+        .geometry
+        .coordinates;
+      const angle = Math.atan2(
+        stationCoords[0] - coords[0],
+        stationCoords[1] - coords[1],
+      );
+      const angleDeg = (angle * 180) / Math.PI;
+      map.flyTo({
+        center: coords,
+        zoom: 20,
         pitch: 70,
-        padding,
-        duration: 500,
+        bearing: angleDeg,
       });
     }
 
@@ -240,6 +261,7 @@ const stationView = {
   unmount: () => {
     document.title = origTitle;
     currentStation = null;
+    exitFeature = null;
     $station.classList.remove('open');
     $station.classList.remove('min');
 
@@ -585,6 +607,28 @@ const formatTime = (datetime, showAMPM = false) => {
       ],
     },
   });
+  map.on('mouseenter', 'exits', () => {
+    mapCanvas.style.cursor = 'pointer';
+  });
+  map.on('mouseleave', 'exits', () => {
+    mapCanvas.style.cursor = '';
+  });
+  map.on('click', 'exits', (e) => {
+    exitFeature = e.features[0];
+    currentStation = stationsData.find(
+      (d) => d.properties.station_codes === exitFeature.properties.station_codes,
+    );
+    const previousStationName = decodeURIComponent(location.hash.split('/')[1] || '');
+
+    if(!previousStationName) { // Nothing -> Exit
+      location.hash = `stations/${currentStation.properties.name}`;
+    }
+    else if (previousStationName !== currentStation.properties.name) { // Station || Exit -> Exit at a different station.
+      location.hash = `stations/${currentStation.properties.name}`;
+    } else { // Station || Exit -> Exit at same station.
+      window.dispatchEvent(new HashChangeEvent("hashchange"));
+    }
+  });
 
   // STATIONS
   map.addLayer({
@@ -786,7 +830,7 @@ const formatTime = (datetime, showAMPM = false) => {
         return codes.some((c) => c.toLowerCase() === name.toLowerCase());
       });
     if (stationData) {
-      stationView.mount(stationData);
+      stationView.mount(stationData, exitFeature);
     } else {
       stationView.unmount();
     }
@@ -802,6 +846,7 @@ const formatTime = (datetime, showAMPM = false) => {
 
   map.on('movestart', (e) => {
     if (!e.originalEvent) return; // Not initiated by humans
+    exitFeature = null;
     if (!currentStation) return;
     $station.classList.add('min');
   });
